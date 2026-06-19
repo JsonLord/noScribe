@@ -52,6 +52,7 @@ done
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$HERE"
+info "Starting noScribe web…"
 
 # Pick the Python interpreter (prefer the venv so the CLI subprocess matches).
 PYTHON="$HERE/venv/bin/python"
@@ -66,11 +67,12 @@ else
     warn ".env not found — transcription will fall back to a local model if installed."
 fi
 
-# Resolve bind address from Tailscale.
+# Resolve bind address from Tailscale (guarded so a stuck daemon can't hang us).
+ts() { if need timeout; then timeout 5 tailscale "$@"; else tailscale "$@"; fi; }
 TS_IP=""; TS_DNS=""
 if need tailscale; then
-    TS_IP="$(tailscale ip -4 2>/dev/null | head -n1 || true)"
-    TS_DNS="$(tailscale status --json 2>/dev/null \
+    TS_IP="$(ts ip -4 2>/dev/null | head -n1 || true)"
+    TS_DNS="$(ts status --json 2>/dev/null \
         | python3 -c 'import sys,json;print(json.load(sys.stdin).get("Self",{}).get("DNSName","").rstrip("."))' 2>/dev/null || true)"
 fi
 if [ "$BIND_ADDR" = "auto" ]; then
