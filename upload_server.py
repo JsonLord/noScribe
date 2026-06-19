@@ -36,6 +36,7 @@ MAX_BYTES = 8 * 1024 * 1024 * 1024  # 8 GiB cap per upload request
 # Files noScribe produces; everything else uploaded is treated as media to
 # transcribe (noScribe/ffmpeg accept essentially any audio/video container).
 TRANSCRIPT_EXTS = {".html", ".htm", ".txt", ".vtt"}
+DOWNLOAD_ONLY_EXTS = TRANSCRIPT_EXTS | {".log"}
 
 # (label, code). Empty code = auto-detect (no --language passed).
 LANGUAGES = [
@@ -163,7 +164,9 @@ function poll() {
           cell.textContent = 'transcribing…'; cell.className = 'st-running'; anyRunning = true;
         } else if (job.status === 'done') { cell.textContent = 'done'; cell.className = 'st-done'; anyDone = true;
         } else if (job.status === 'error') { cell.textContent = 'error'; cell.className = 'st-error';
-          status.textContent = (job.error||'Transcription failed'); }
+          status.textContent = (job.error || 'Transcription failed');
+          if (job.log) status.insertAdjacentHTML('beforeend',
+            " — <a href='dl/" + encodeURIComponent(job.log) + "'>view log</a>"); }
       }
     });
     if (anyRunning) setTimeout(tick, 1500);
@@ -257,23 +260,43 @@ class Transcriber:
                          daemon=True).start()
         return True, "started"
 
+    @staticmethod
+    def _log_tail(path, n=15):
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                lines = [ln.rstrip() for ln in f if ln.strip()]
+            return " | ".join(lines[-n:])
+        except Exception:
+            return ""
+
     def _run(self, audio_name, audio_path, out_path, out_name, language_code, speaker):
-        cmd = [sys.executable, "-m", "noScribe", audio_path, out_path,
+        # -u so the log streams live (tail -f works while transcribing).
+        cmd = [sys.executable, "-u", "-m", "noScribe", audio_path, out_path,
                "--no-gui", "--speaker-detection", speaker]
         if language_code:
             cmd += ["--language", language_code]
         if self.model:
             cmd += ["--model", self.model]
+        log_path = os.path.splitext(out_path)[0] + ".log"
+        log_name = os.path.basename(log_path)
         with self.lock:
             self.jobs[audio_name]["status"] = "running"
+            self.jobs[audio_name]["log"] = log_name
+        ok, err = False, ""
         try:
-            proc = subprocess.run(cmd, cwd=PROJECT_ROOT, capture_output=True,
-                                  text=True, timeout=60 * 60 * 6)
-            ok = proc.returncode == 0 and os.path.isfile(out_path)
-            err = ""
+            with open(log_path, "w", encoding="utf-8") as logf:
+                logf.write("$ " + " ".join(cmd) + "\n\n")
+                logf.flush()
+                proc = subprocess.Popen(cmd, cwd=PROJECT_ROOT, stdout=logf,
+                                        stderr=subprocess.STDOUT, text=True)
+                try:
+                    rc = proc.wait(timeout=60 * 60 * 6)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    rc = -1
+            ok = rc == 0 and os.path.isfile(out_path)
             if not ok:
-                tail = (proc.stderr or proc.stdout or "").strip().splitlines()
-                err = " ".join(tail[-3:]) if tail else f"exit code {proc.returncode}"
+                err = self._log_tail(log_path) or f"exit code {rc}"
         except Exception as e:
             ok, err = False, str(e)
         with self.lock:
@@ -377,9 +400,9 @@ class Handler(BaseHTTPRequestHandler):
             esc = html.escape(name)
             cssid = re.sub(r"[^a-zA-Z0-9_-]", "_", name)
             dl = f"<a href='dl/{urllib.parse.quote(name)}'>download</a>"
-            # Anything that is not a produced transcript is treated as a
+            # Anything that is not a produced transcript/log is treated as a
             # transcribable media file (noScribe/ffmpeg handle most formats).
-            if enabled and ext not in TRANSCRIPT_EXTS:
+            if enabled and ext not in DOWNLOAD_ONLY_EXTS:
                 action = (f"<button onclick=\"transcribe('{esc}', this)\">Transcribe</button>"
                           f" <span id='st-{cssid}' class='muted'></span> &middot; {dl}")
             else:
