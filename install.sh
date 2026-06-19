@@ -171,6 +171,25 @@ fi
 ok "Dependencies installed."
 
 # ---------------------------------------------------------------------------
+# tkinter (system package; required even in cloud/CLI mode via customtkinter)
+# ---------------------------------------------------------------------------
+if ! python3 -c "import tkinter" >/dev/null 2>&1; then
+    warn "Python 'tkinter' is missing — noScribe needs it even in cloud/CLI mode."
+    if [ "$uname_s" = "Linux" ] && command -v apt-get >/dev/null 2>&1; then
+        info "Installing python3-tk (requires sudo)..."
+        sudo apt-get install -y python3-tk \
+            || warn "Could not auto-install. Run manually: sudo apt-get install -y python3-tk"
+    elif [ "$uname_s" = "Darwin" ]; then
+        warn "Install a Python that bundles Tk, e.g.: brew install python-tk"
+    else
+        warn "Install your distro's Tk package for python3 (e.g. python3-tk)."
+    fi
+    python3 -c "import tkinter" >/dev/null 2>&1 && ok "tkinter is now available."
+else
+    ok "tkinter is available."
+fi
+
+# ---------------------------------------------------------------------------
 # Optional: local Whisper models
 # ---------------------------------------------------------------------------
 if [ "$WITH_MODELS" -eq 1 ]; then

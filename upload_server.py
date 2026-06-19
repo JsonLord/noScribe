@@ -33,9 +33,8 @@ WORK_DIR = os.path.expanduser("~/transcribe/data")
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 MAX_BYTES = 8 * 1024 * 1024 * 1024  # 8 GiB cap per upload request
 
-AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".oga", ".opus",
-              ".wma", ".aiff", ".aif", ".mp4", ".mov", ".mkv", ".avi", ".webm",
-              ".m4v", ".3gp", ".amr"}
+# Files noScribe produces; everything else uploaded is treated as media to
+# transcribe (noScribe/ffmpeg accept essentially any audio/video container).
 TRANSCRIPT_EXTS = {".html", ".htm", ".txt", ".vtt"}
 
 # (label, code). Empty code = auto-detect (no --language passed).
@@ -377,17 +376,14 @@ class Handler(BaseHTTPRequestHandler):
             size = human_size(os.path.getsize(full))
             esc = html.escape(name)
             cssid = re.sub(r"[^a-zA-Z0-9_-]", "_", name)
-            if ext in AUDIO_EXTS:
-                if enabled:
-                    btn = (f"<button onclick=\"transcribe('{esc}', this)\">Transcribe</button>"
-                           f" <span id='st-{cssid}' class='muted'></span>")
-                else:
-                    btn = "<span class='muted'>audio</span>"
-                action = btn
-            elif ext in TRANSCRIPT_EXTS:
-                action = f"<a href='dl/{urllib.parse.quote(name)}'>download</a>"
+            dl = f"<a href='dl/{urllib.parse.quote(name)}'>download</a>"
+            # Anything that is not a produced transcript is treated as a
+            # transcribable media file (noScribe/ffmpeg handle most formats).
+            if enabled and ext not in TRANSCRIPT_EXTS:
+                action = (f"<button onclick=\"transcribe('{esc}', this)\">Transcribe</button>"
+                          f" <span id='st-{cssid}' class='muted'></span> &middot; {dl}")
             else:
-                action = f"<a href='dl/{urllib.parse.quote(name)}'>download</a>"
+                action = dl
             rows.append(f"<tr><td>{esc}</td><td>{size}</td><td>{action}</td></tr>")
         if not rows:
             rows.append("<tr><td colspan='3' class='muted'>empty — upload an audio file</td></tr>")
