@@ -49,7 +49,15 @@ DEFAULT_MODEL = "whisper-1"
 # Long recordings are split into chunks so a single request does not exceed the
 # endpoint's (or its proxy's) time/size limits, which otherwise shows up as a
 # 502/504. Each chunk's timestamps are offset back to absolute time.
-DEFAULT_CHUNK_SECONDS = 300
+#
+# Kept deliberately small: many hosted proxies (e.g. Blablador) put a short
+# gateway timeout in front of the upstream model, so a chunk that takes too long
+# to transcribe comes back as a 502 "invalid response from upstream" on every
+# retry. Roughly two minutes of 16 kHz mono audio transcribes well within a
+# typical 60 s proxy window. Override with NOSCRIBE_OPENAI_CHUNK_SECONDS if your
+# endpoint tolerates longer requests (fewer round-trips), or lower it further
+# if 502s persist.
+DEFAULT_CHUNK_SECONDS = 120
 
 
 def _first_env(primary, fallbacks):
