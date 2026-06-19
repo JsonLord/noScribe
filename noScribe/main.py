@@ -51,7 +51,7 @@ from faster_whisper.vad import VadOptions, get_speech_timestamps
 from i18n import t
 from PIL import Image
 
-from . import audio, exception, transcription, utils
+from . import audio, exception, openai_transcribe, transcription, utils
 from .CTkToolTips import CTkToolTip
 from .tkHyperlinkManager import HyperlinkManager
 
@@ -2133,10 +2133,13 @@ class App(ctk.CTk):
         if val != '':
             stop_time = utils.str_to_ms(val)
         
-        # Get whisper model path
+        # Get whisper model path. When a cloud endpoint is configured the
+        # transcription happens remotely, so a local model is not required.
+        cloud_enabled = openai_transcribe.get_endpoint_config() is not None
         sel_whisper_model = self.option_menu_whisper_model.get()
-        if sel_whisper_model not in self.whisper_models:
+        if not cloud_enabled and sel_whisper_model not in self.whisper_models:
             raise FileNotFoundError(f"The whisper model '{sel_whisper_model}' does not exist.")
+        sel_whisper_model_obj = self.whisper_models.get(sel_whisper_model)
         queue = TranscriptionQueue()
         if len(self.audio_files_list) != len(self.transcript_files_list):
             self.create_default_transcript_names()
@@ -2148,7 +2151,7 @@ class App(ctk.CTk):
                 start_time=start_time,
                 stop_time=stop_time,
                 language_name=self.option_menu_language.get(),
-                whisper_model_name=self.whisper_models[sel_whisper_model],  # Pass the full model object
+                whisper_model_name=sel_whisper_model_obj,  # Full model object (None in cloud mode)
                 speaker_detection=self.option_menu_speaker.get(),
                 overlapping=self.check_box_overlapping.get(),
                 timestamps=self.check_box_timestamps.get(),
@@ -2911,6 +2914,51 @@ class App(ctk.CTk):
 
         return False
 
+    def _run_cloud_transcription_stream(self, tmp_audio_file: str, job, on_segment,
+                                        cloud_cfg, language_code):
+        """Transcribe via an OpenAI-compatible cloud endpoint.
+
+        Sends the prepared audio to the configured endpoint, then replays the
+        returned segments through ``on_segment`` so the rest of the pipeline
+        (pause detection, speaker labels, timestamps, ...) is unchanged.
+        """
+        self.logn(t('cloud_transcription_info',
+                    url=cloud_cfg['base_url'], model=cloud_cfg['model']))
+
+        if self.cancel:
+            raise Exception(t('err_user_cancelation'))
+
+        # Determine audio duration locally as a fallback for endpoints that do
+        # not report it.
+        fallback_duration = None
+        try:
+            audio_array = decode_audio(tmp_audio_file, sampling_rate=16000)
+            fallback_duration = audio_array.shape[0] / 16000
+        except Exception:
+            pass
+
+        try:
+            segments, info = openai_transcribe.transcribe_file(
+                tmp_audio_file,
+                cloud_cfg,
+                language=language_code,
+                fallback_duration=fallback_duration,
+            )
+        except Exception as e:
+            self.logn(t('cloud_transcription_failed', error=str(e)), 'error')
+            raise
+
+        self.logn(t('start_transcription') + '\n')
+
+        for seg in segments:
+            if self.cancel:
+                raise Exception(t('err_user_cancelation'))
+            on_segment(seg)
+
+        if not info.get('duration'):
+            info['duration'] = fallback_duration
+        return info
+
     def _run_whisper_subprocess_stream(self, tmp_audio_file: str, job, on_segment):
         """Spawn a subprocess to run Faster-Whisper and stream segments.
         Calls on_segment(dict) for each segment streamed by the child.
@@ -2924,6 +2972,14 @@ class App(ctk.CTk):
                 language_code = languages[job.language_name]
             except Exception:
                 language_code = None
+
+        # If a cloud endpoint is configured via the environment, transcribe
+        # there instead of running the bundled local whisper model.
+        cloud_cfg = openai_transcribe.get_endpoint_config()
+        if cloud_cfg:
+            return self._run_cloud_transcription_stream(
+                tmp_audio_file, job, on_segment, cloud_cfg, language_code
+            )
 
         # VAD threshold from config
         try:
@@ -3295,10 +3351,14 @@ def run_cli_mode(args):
     try:
         # Create a headless app instance (no GUI initialization)
         app = HeadlessApp()
-        
+
+        # When a cloud endpoint is configured the transcription happens
+        # remotely, so a local whisper model is not required.
+        cloud_enabled = openai_transcribe.get_endpoint_config() is not None
+
         # Validate and set the whisper model
         if args.model:
-            if args.model not in app.whisper_models:
+            if not cloud_enabled and args.model not in app.whisper_models:
                 print(f"Error: Model '{args.model}' not found.")
                 print(f"Available models: {', '.join(app.whisper_models.keys())}")
                 return 1
@@ -3307,16 +3367,18 @@ def run_cli_mode(args):
             if 'precise' in app.whisper_models:
                 args.model = 'precise'
             elif app.whisper_models:
-                args.model = app.whisper_models.keys()[0]
+                args.model = next(iter(app.whisper_models.keys()))
+            elif cloud_enabled:
+                args.model = 'cloud'
             else:
                 print("Error: No Whisper models found.")
                 return 1
-        
+
         # Create job from CLI arguments
         job = create_job_from_cli_args(args)
-        
+
         # Set the whisper model path
-        job.whisper_model = app.whisper_models[args.model]
+        job.whisper_model = app.whisper_models.get(args.model, args.model)
         
         # Validate files
         if not os.path.exists(job.audio_file):

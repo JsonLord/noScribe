@@ -243,6 +243,28 @@ The source code of the editor can be found here: [https://github.com/kaixxx/noSc
 - Also in the user config directory you will find a folder named `log` with detailed log-files for every transcript (also unfinished ones). This can be helpful in the case of any errors. Be aware though that these files also contain the text of your transcripts which might include sensitive information.
 - If you want to use **custom whisper models** with noScribe, follow the [instructions in the Wiki](https://github.com/kaixxx/noScribe/wiki/Add-custom-Whisper-models-for-transcription).
 
+### Cloud transcription via an OpenAI-compatible endpoint
+
+By default noScribe transcribes locally with the bundled Whisper models. Alternatively, you can point it at a **cloud-hosted model** that exposes the OpenAI `/v1/audio/transcriptions` API (OpenAI itself, but also compatible services such as Groq, or a self-hosted server like `faster-whisper-server`, LiteLLM, vLLM, …). This is configured entirely through **environment variables**, so no API key is written to the on-disk config file:
+
+| Variable | Description |
+| --- | --- |
+| `NOSCRIBE_OPENAI_BASE_URL` | Base URL of the endpoint, e.g. `https://api.openai.com/v1` or `http://localhost:8000/v1`. **Setting this is what switches noScribe to the cloud model.** |
+| `NOSCRIBE_OPENAI_API_KEY` | The Bearer token sent in the `Authorization` header. Required when a base URL is set. |
+| `NOSCRIBE_OPENAI_MODEL` | Model name to request (default: `whisper-1`). |
+
+The conventional `OPENAI_BASE_URL`, `OPENAI_API_KEY` and `OPENAI_MODEL` variables are accepted as fallbacks.
+
+Example (Linux/macOS):
+
+```bash
+export NOSCRIBE_OPENAI_BASE_URL="https://api.openai.com/v1"
+export NOSCRIBE_OPENAI_API_KEY="sk-..."
+export NOSCRIBE_OPENAI_MODEL="whisper-1"
+```
+
+When a base URL is configured, the audio is sent to the endpoint and the returned segments flow through the same pipeline (pause detection, speaker labels, timestamps, …) as local transcription. The Whisper model selector in the UI is then ignored, and no local model needs to be installed. The audio still leaves your machine in this mode, so only use endpoints you trust.
+
 ## Development and Contribution
 - I developed noScribe in python 3.12
 - I cannot host the whisper-models on GitHub because they are too large. There is a readme in the models-folder with instructions on how to get them.

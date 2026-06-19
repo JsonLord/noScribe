@@ -96,6 +96,8 @@ en:
   vad: 'Voice activity detection...'
   language_detect: 'Detected language "%{lang}" with probability %{prob}'
   language_en_only: 'Note that the AI model selected for transcription is English-only.'
+  cloud_transcription_info: 'Using cloud transcription endpoint %{url} (model %{model})'
+  cloud_transcription_failed: 'Cloud transcription failed: %{error}'
 
   transcription_finished: 'Transcription finished.' 
   transcription_saved: 'Saved to: %{file}'
