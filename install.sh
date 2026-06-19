@@ -272,7 +272,15 @@ else
     echo "Warning: .env not found; noScribe will use the local model if available." >&2
 fi
 
-exec ./venv/bin/python -m noScribe "$@"
+# Prefer the venv, but fall back to system python3 if the venv lacks deps.
+PYTHON="./venv/bin/python"
+if [ ! -x "$PYTHON" ] || ! "$PYTHON" -c "import faster_whisper" >/dev/null 2>&1; then
+    if command -v python3 >/dev/null 2>&1 && python3 -c "import faster_whisper" >/dev/null 2>&1; then
+        PYTHON="python3"
+    fi
+fi
+
+exec "$PYTHON" -m noScribe "$@"
 EOF
 chmod +x "$LAUNCHER"
 ok "Launcher written to ${LAUNCHER}"

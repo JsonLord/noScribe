@@ -2938,11 +2938,12 @@ class App(ctk.CTk):
             pass
 
         try:
-            segments, info = openai_transcribe.transcribe_file(
+            segments, info = openai_transcribe.transcribe_audio(
                 tmp_audio_file,
                 cloud_cfg,
                 language=language_code,
                 fallback_duration=fallback_duration,
+                log=lambda msg: self.logn(msg),
             )
         except Exception as e:
             self.logn(t('cloud_transcription_failed', error=str(e)), 'error')

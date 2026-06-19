@@ -54,9 +54,15 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$HERE"
 info "Starting noScribe web…"
 
-# Pick the Python interpreter (prefer the venv so the CLI subprocess matches).
+# Pick the Python interpreter. Prefer the venv, but if it is empty/broken fall
+# back to system python3 when that one actually has the dependencies.
 PYTHON="$HERE/venv/bin/python"
-[ -x "$PYTHON" ] || PYTHON="python3"
+if [ ! -x "$PYTHON" ] || ! "$PYTHON" -c "import faster_whisper" >/dev/null 2>&1; then
+    if command -v python3 >/dev/null 2>&1 && python3 -c "import faster_whisper" >/dev/null 2>&1; then
+        warn "venv is missing dependencies; using system python3."
+        PYTHON="python3"
+    fi
+fi
 
 # Load cloud credentials so the CLI subprocess transcribes via the endpoint.
 if [ -f ./.env ]; then
