@@ -95,7 +95,15 @@ ok "Prerequisites look fine."
 uname_s="$(uname -s)"
 uname_m="$(uname -m)"
 case "$uname_s" in
-    Linux)  REQ_FILE="environments/requirements_linux.txt" ;;
+    Linux)
+        if [ "$uname_m" = "aarch64" ] || [ "$uname_m" = "arm64" ]; then
+            # e.g. NVIDIA DGX Spark / Grace-Blackwell — the x86 torch pins have
+            # no aarch64 wheels (torchcodec 0.7.0 in particular).
+            REQ_FILE="environments/requirements_linux_aarch64.txt"
+        else
+            REQ_FILE="environments/requirements_linux.txt"
+        fi
+        ;;
     Darwin)
         if [ "$uname_m" = "arm64" ]; then
             REQ_FILE="environments/requirements_macOS_arm64.txt"
