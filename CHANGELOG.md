@@ -1,5 +1,8 @@
 # noScribe Changelog
 
+## unreleased
+- Optional cloud transcription via an OpenAI-compatible `/v1/audio/transcriptions` endpoint, configured through the `NOSCRIBE_OPENAI_BASE_URL`/`NOSCRIBE_OPENAI_API_KEY`/`NOSCRIBE_OPENAI_MODEL` environment variables (Bearer token auth). No local model is required when enabled.
+
 ## version 0.7
 - Batch transcription: process several files at once
 - Improved speaker identification

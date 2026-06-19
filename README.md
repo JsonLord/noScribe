@@ -243,6 +243,74 @@ The source code of the editor can be found here: [https://github.com/kaixxx/noSc
 - Also in the user config directory you will find a folder named `log` with detailed log-files for every transcript (also unfinished ones). This can be helpful in the case of any errors. Be aware though that these files also contain the text of your transcripts which might include sensitive information.
 - If you want to use **custom whisper models** with noScribe, follow the [instructions in the Wiki](https://github.com/kaixxx/noScribe/wiki/Add-custom-Whisper-models-for-transcription).
 
+### Cloud transcription via an OpenAI-compatible endpoint
+
+By default noScribe transcribes locally with the bundled Whisper models. Alternatively, you can point it at a **cloud-hosted model** that exposes the OpenAI `/v1/audio/transcriptions` API (OpenAI itself, but also compatible services such as Groq, or a self-hosted server like `faster-whisper-server`, LiteLLM, vLLM, …). This is configured entirely through **environment variables**, so no API key is written to the on-disk config file:
+
+| Variable | Description |
+| --- | --- |
+| `NOSCRIBE_OPENAI_BASE_URL` | Base URL of the endpoint, e.g. `https://api.openai.com/v1` or `http://localhost:8000/v1`. **Setting this is what switches noScribe to the cloud model.** |
+| `NOSCRIBE_OPENAI_API_KEY` | The Bearer token sent in the `Authorization` header. Required when a base URL is set. |
+| `NOSCRIBE_OPENAI_MODEL` | Model name to request (default: `whisper-1`). |
+
+The conventional `OPENAI_BASE_URL`, `OPENAI_API_KEY` and `OPENAI_MODEL` variables are accepted as fallbacks.
+
+**Quick install (Linux/macOS):** run [`install.sh`](install.sh) inside an empty project folder. It clones noScribe, sets up a virtual environment with all dependencies, asks you for the endpoint URL, Bearer token and model, stores them in a private `.env`, and writes a `run.sh` launcher:
+
+```bash
+bash install.sh          # add --with-models to also download the local models
+./noScribe/run.sh        # start noScribe with the cloud credentials loaded
+```
+
+Or configure the variables manually:
+
+Example (Linux/macOS):
+
+```bash
+export NOSCRIBE_OPENAI_BASE_URL="https://api.openai.com/v1"
+export NOSCRIBE_OPENAI_API_KEY="sk-..."
+export NOSCRIBE_OPENAI_MODEL="whisper-1"
+```
+
+When a base URL is configured, the audio is sent to the endpoint and the returned segments flow through the same pipeline (pause detection, speaker labels, timestamps, …) as local transcription. The Whisper model selector in the UI is then ignored, and no local model needs to be installed. The audio still leaves your machine in this mode, so only use endpoints you trust.
+
+### Using noScribe from a browser over Tailscale
+
+On a headless/remote machine (e.g. a DGX Spark) you can drive noScribe from a browser over your **Tailscale** network. There are two modes:
+
+**1. Simple workflow — [`serve.sh`](serve.sh) (recommended for most jobs).**
+A lightweight web page: upload an audio file, pick a language, press **Transcribe** (which runs the noScribe CLI headlessly — no GUI, no noVNC), then download the transcript. Speaker identification is on by default.
+
+```bash
+./serve.sh                     # binds to the Tailscale IP; prints http://<ts-ip>:6080/
+./serve.sh --tailscale-serve   # publishes HTTPS at https://<magicdns>/ (tailnet only)
+```
+
+It loads your `.env`, so transcription goes through your cloud endpoint. (The same page can be run standalone: `python3 upload_server.py --transcribe --dir ~/transcribe/data --bind <addr>`.)
+
+**2. Full GUI for big projects — [`webgui.sh`](webgui.sh).**
+noScribe's desktop (tkinter) GUI streamed to the browser via **noVNC** — for interactive editing, segment review, etc.
+
+```bash
+./webgui.sh --install-deps        # first run: apt-get Xvfb/x11vnc/noVNC/websockify/fluxbox (sudo)
+./webgui.sh                        # http://<ts-ip>:6080/vnc.html
+./webgui.sh --tailscale-serve      # HTTPS at https://<magicdns>/vnc.html
+./webgui.sh --upload               # also serve the drag-and-drop file page alongside noVNC
+```
+
+It launches your existing `run.sh`, so the cloud `.env` applies. Access is tailnet-only; add `--password` for an extra VNC password.
+
+### Mounted shared folders — [`taildrive.sh`](taildrive.sh)
+
+A stand-alone helper for **Tailscale Drive**, so a folder on one machine appears as a mounted drive on another (no copying):
+
+```bash
+# on the machine with the files (e.g. the Spark)
+./taildrive.sh share transcribe ~/transcribe/data
+# on your laptop
+./taildrive.sh mount <device> transcribe ~/mnt/spark   # via rclone (no root)
+```
+
 ## Development and Contribution
 - I developed noScribe in python 3.12
 - I cannot host the whisper-models on GitHub because they are too large. There is a readme in the models-folder with instructions on how to get them.

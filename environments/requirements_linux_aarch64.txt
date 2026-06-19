@@ -1,0 +1,27 @@
+# Install with `pip install -r requirements_linux_aarch64.txt`
+#
+# aarch64 Linux (e.g. NVIDIA DGX Spark / Grace-Blackwell).
+#
+# The x86 requirements pin a torch stack (notably torchcodec==0.7.0) that has
+# no matching aarch64 wheels, and NVIDIA's Blackwell GPUs need a newer CUDA/
+# torch build anyway. noScribe decodes audio with PyAV (`av`), not torchcodec,
+# so the torch stack is left unpinned here and pip resolves a consistent set
+# for this platform. torchaudio is only used for local speaker diarization.
+#
+# If the installed torch does not see the GPU, install a CUDA build first, e.g.
+#   pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu130
+# (or follow NVIDIA's DGX Spark / PyTorch instructions), then re-run this file.
+torch
+torchaudio
+av
+AdvancedHTMLParser
+appdirs
+customtkinter
+CTkToolTip
+faster-whisper
+Pillow
+pyannote.audio>=4
+pyinstaller
+python-i18n
+PyYAML
+soundfile
