@@ -108,17 +108,24 @@ case "$uname_s" in
 esac
 
 # ---------------------------------------------------------------------------
-# Clone the repository
+# Clone the repository (supports installing into an existing folder)
 # ---------------------------------------------------------------------------
-if [ -e "$TARGET_DIR" ]; then
-    if [ -d "$TARGET_DIR/.git" ]; then
-        info "Found existing checkout in '$TARGET_DIR', fetching '$BRANCH'..."
-        git -C "$TARGET_DIR" fetch --depth 1 origin "$BRANCH"
-        git -C "$TARGET_DIR" checkout "$BRANCH"
-        git -C "$TARGET_DIR" reset --hard "origin/$BRANCH"
-    else
-        die "'$TARGET_DIR' already exists and is not a git checkout. Move it or pass --dir."
-    fi
+if [ -d "$TARGET_DIR/.git" ]; then
+    info "Found existing checkout in '$TARGET_DIR', fetching '$BRANCH'..."
+    git -C "$TARGET_DIR" fetch --depth 1 origin "$BRANCH"
+    git -C "$TARGET_DIR" checkout -B "$BRANCH" FETCH_HEAD
+elif [ -e "$TARGET_DIR" ] && [ -n "$(ls -A "$TARGET_DIR" 2>/dev/null)" ]; then
+    # Existing, non-empty directory that is not a git checkout (e.g. you ran
+    # the installer from inside the folder you want to use). Clone into a temp
+    # location and copy the files in. This overwrites same-named files such as
+    # this install script, but leaves your other files alone.
+    info "Installing into existing directory '$TARGET_DIR' (in place)..."
+    _tmp_clone="$(mktemp -d)"
+    trap 'rm -rf "$_tmp_clone"' EXIT
+    git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$_tmp_clone/repo"
+    cp -a "$_tmp_clone/repo/." "$TARGET_DIR/"
+    rm -rf "$_tmp_clone"
+    trap - EXIT
 else
     info "Cloning $REPO_URL (branch $BRANCH) into '$TARGET_DIR'..."
     git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$TARGET_DIR"
