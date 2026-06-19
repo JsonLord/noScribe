@@ -23,6 +23,9 @@
 #     --bind <addr|auto> Address noVNC binds to (default: auto = Tailscale IP)
 #     --tailscale-serve  Publish via `tailscale serve` (HTTPS + MagicDNS, tailnet only)
 #     --password         Set a VNC password (otherwise none; access gated by tailnet)
+#     --upload           Also serve a drag-and-drop file upload/download page
+#     --upload-port <p>  Port for the upload page    (default: 6081)
+#     --upload-dir <d>   Shared folder for transfers (default: ~/transcribe/data)
 #     --install-deps     Install missing system packages with apt (sudo)
 #     -h, --help         Show this help and exit
 
@@ -36,6 +39,9 @@ BIND_ADDR="auto"
 USE_TS_SERVE=0
 USE_PASSWORD=0
 INSTALL_DEPS=0
+USE_UPLOAD=0
+UPLOAD_PORT="6081"
+UPLOAD_DIR="$HOME/transcribe/data"
 
 c_blue=$'\033[1;34m'; c_green=$'\033[1;32m'; c_yellow=$'\033[1;33m'
 c_red=$'\033[1;31m'; c_reset=$'\033[0m'
@@ -54,6 +60,9 @@ while [ $# -gt 0 ]; do
         --bind)      BIND_ADDR="${2:?}"; shift 2 ;;
         --tailscale-serve) USE_TS_SERVE=1; shift ;;
         --password)  USE_PASSWORD=1; shift ;;
+        --upload)    USE_UPLOAD=1; shift ;;
+        --upload-port) UPLOAD_PORT="${2:?}"; shift 2 ;;
+        --upload-dir)  UPLOAD_DIR="${2:?}"; shift 2 ;;
         --install-deps) INSTALL_DEPS=1; shift ;;
         -h|--help)   usage ;;
         *) die "Unknown option: $1 (use --help)" ;;
@@ -184,6 +193,21 @@ if [ "$USE_TS_SERVE" -eq 1 ]; then
     fi
 fi
 
+# Optional drag-and-drop upload/download page.
+UPLOAD_URL=""
+if [ "$USE_UPLOAD" -eq 1 ]; then
+    info "Starting upload page on $BIND_ADDR:$UPLOAD_PORT (folder: $UPLOAD_DIR)..."
+    mkdir -p "$UPLOAD_DIR"
+    python3 "$HERE/upload_server.py" --dir "$UPLOAD_DIR" --bind "$BIND_ADDR" --port "$UPLOAD_PORT" >/dev/null 2>&1 &
+    PIDS+=($!)
+    if [ "$USE_TS_SERVE" -eq 1 ] && need tailscale; then
+        tailscale serve --bg --https=443 --set-path=/files "http://127.0.0.1:$UPLOAD_PORT" 2>/dev/null \
+            && [ -n "$TS_DNS" ] && UPLOAD_URL="https://$TS_DNS/files/"
+    fi
+    [ -z "$UPLOAD_URL" ] && [ -n "$TS_IP" ] && UPLOAD_URL="http://$TS_IP:$UPLOAD_PORT/"
+    sleep 1
+fi
+
 info "Launching noScribe..."
 ./run.sh &
 PIDS+=($!)
@@ -196,6 +220,12 @@ echo "  Open one of these from any device on your tailnet:"
 [ -n "$TS_DNS" ]           && echo "      http://${TS_DNS}:${WEB_PORT}/vnc.html"
 [ -n "$TS_IP" ]            && echo "      http://${TS_IP}:${WEB_PORT}/vnc.html"
 [ "$BIND_ADDR" = "0.0.0.0" ] && echo "      http://<this-host>:${WEB_PORT}/vnc.html"
+if [ "$USE_UPLOAD" -eq 1 ]; then
+    echo
+    echo "  Upload / download files at:"
+    echo "      ${c_green}${UPLOAD_URL}${c_reset}"
+    echo "      (uploads land in $UPLOAD_DIR — open them from noScribe's file dialog)"
+fi
 echo
 echo "  Press Ctrl+C here to stop everything."
 echo

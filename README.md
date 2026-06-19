@@ -274,17 +274,42 @@ export NOSCRIBE_OPENAI_MODEL="whisper-1"
 
 When a base URL is configured, the audio is sent to the endpoint and the returned segments flow through the same pipeline (pause detection, speaker labels, timestamps, …) as local transcription. The Whisper model selector in the UI is then ignored, and no local model needs to be installed. The audio still leaves your machine in this mode, so only use endpoints you trust.
 
-### Running in a browser over Tailscale
+### Using noScribe from a browser over Tailscale
 
-noScribe has a desktop (tkinter) GUI, so it cannot be served as a web page directly. To use it from a browser on a headless/remote machine (e.g. a DGX Spark), [`webgui.sh`](webgui.sh) runs noScribe on a virtual display and streams it with **noVNC**, exposed only to your **Tailscale** network:
+On a headless/remote machine (e.g. a DGX Spark) you can drive noScribe from a browser over your **Tailscale** network. There are two modes:
+
+**1. Simple workflow — [`serve.sh`](serve.sh) (recommended for most jobs).**
+A lightweight web page: upload an audio file, pick a language, press **Transcribe** (which runs the noScribe CLI headlessly — no GUI, no noVNC), then download the transcript. Speaker identification is on by default.
+
+```bash
+./serve.sh                     # binds to the Tailscale IP; prints http://<ts-ip>:6080/
+./serve.sh --tailscale-serve   # publishes HTTPS at https://<magicdns>/ (tailnet only)
+```
+
+It loads your `.env`, so transcription goes through your cloud endpoint. (The same page can be run standalone: `python3 upload_server.py --transcribe --dir ~/transcribe/data --bind <addr>`.)
+
+**2. Full GUI for big projects — [`webgui.sh`](webgui.sh).**
+noScribe's desktop (tkinter) GUI streamed to the browser via **noVNC** — for interactive editing, segment review, etc.
 
 ```bash
 ./webgui.sh --install-deps        # first run: apt-get Xvfb/x11vnc/noVNC/websockify/fluxbox (sudo)
-./webgui.sh                        # binds to the Tailscale IP; prints http://<ts-ip>:6080/vnc.html
-./webgui.sh --tailscale-serve      # also publishes HTTPS at https://<magicdns>/vnc.html (tailnet only)
+./webgui.sh                        # http://<ts-ip>:6080/vnc.html
+./webgui.sh --tailscale-serve      # HTTPS at https://<magicdns>/vnc.html
+./webgui.sh --upload               # also serve the drag-and-drop file page alongside noVNC
 ```
 
-It launches your existing `run.sh`, so the cloud `.env` settings apply unchanged. Access is restricted to your tailnet; add `--password` for an extra VNC password on top.
+It launches your existing `run.sh`, so the cloud `.env` applies. Access is tailnet-only; add `--password` for an extra VNC password.
+
+### Mounted shared folders — [`taildrive.sh`](taildrive.sh)
+
+A stand-alone helper for **Tailscale Drive**, so a folder on one machine appears as a mounted drive on another (no copying):
+
+```bash
+# on the machine with the files (e.g. the Spark)
+./taildrive.sh share transcribe ~/transcribe/data
+# on your laptop
+./taildrive.sh mount <device> transcribe ~/mnt/spark   # via rclone (no root)
+```
 
 ## Development and Contribution
 - I developed noScribe in python 3.12
