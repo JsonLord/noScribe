@@ -274,6 +274,18 @@ export NOSCRIBE_OPENAI_MODEL="whisper-1"
 
 When a base URL is configured, the audio is sent to the endpoint and the returned segments flow through the same pipeline (pause detection, speaker labels, timestamps, …) as local transcription. The Whisper model selector in the UI is then ignored, and no local model needs to be installed. The audio still leaves your machine in this mode, so only use endpoints you trust.
 
+### Running in a browser over Tailscale
+
+noScribe has a desktop (tkinter) GUI, so it cannot be served as a web page directly. To use it from a browser on a headless/remote machine (e.g. a DGX Spark), [`webgui.sh`](webgui.sh) runs noScribe on a virtual display and streams it with **noVNC**, exposed only to your **Tailscale** network:
+
+```bash
+./webgui.sh --install-deps        # first run: apt-get Xvfb/x11vnc/noVNC/websockify/fluxbox (sudo)
+./webgui.sh                        # binds to the Tailscale IP; prints http://<ts-ip>:6080/vnc.html
+./webgui.sh --tailscale-serve      # also publishes HTTPS at https://<magicdns>/vnc.html (tailnet only)
+```
+
+It launches your existing `run.sh`, so the cloud `.env` settings apply unchanged. Access is restricted to your tailnet; add `--password` for an extra VNC password on top.
+
 ## Development and Contribution
 - I developed noScribe in python 3.12
 - I cannot host the whisper-models on GitHub because they are too large. There is a readme in the models-folder with instructions on how to get them.
