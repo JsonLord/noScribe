@@ -298,6 +298,124 @@ def _find_quiet_cut(samples, target, search, win):
     return best_i
 
 
+# Raw 16 kHz mono PCM is ~1.9 MB/min, which trips proxy body-size limits (a
+# 413 from e.g. openresty/nginx, whose default cap is 1 MB) on even a couple of
+# minutes. Compressing each chunk to Opus/Vorbis (or MP3) shrinks it ~15-30x and
+# uploads faster. Both ``ogg`` and ``mp3`` are in the OpenAI-accepted upload
+# formats, so the endpoint decodes them transparently.
+
+def _compress_with_soundfile(wav_path):
+    """Compress a WAV to Ogg/Opus (or Ogg/Vorbis) via soundfile. Returns the
+    output path or ``None`` if soundfile/the codecs are unavailable."""
+    try:
+        import soundfile as sf
+    except Exception:
+        return None
+    try:
+        data, rate = sf.read(wav_path, dtype="int16")
+    except Exception:
+        return None
+    for subtype in ("OPUS", "VORBIS"):
+        out = os.path.join(tempfile.gettempdir(),
+                           f"noscribe_chunk_{uuid.uuid4().hex}.ogg")
+        try:
+            sf.write(out, data, rate, format="OGG", subtype=subtype)
+            return out
+        except Exception:
+            try:
+                os.remove(out)
+            except OSError:
+                pass
+    return None
+
+
+def _compress_with_av(wav_path, bitrate=48000):
+    """Transcode a WAV to a small mono-ish MP3 via PyAV. Returns the output
+    path or ``None`` if PyAV is unavailable or encoding fails."""
+    try:
+        import av
+    except Exception:
+        return None
+    out = os.path.join(tempfile.gettempdir(),
+                       f"noscribe_chunk_{uuid.uuid4().hex}.mp3")
+    in_c = out_c = None
+    try:
+        in_c = av.open(wav_path)
+        in_s = in_c.streams.audio[0]
+        out_c = av.open(out, "w", format="mp3")
+        out_s = out_c.add_stream("mp3", rate=in_s.codec_context.rate)
+        try:
+            out_s.bit_rate = bitrate
+        except Exception:
+            pass
+        resampler = av.AudioResampler(
+            format=out_s.format, layout=out_s.layout, rate=out_s.rate)
+
+        def _emit(frames):
+            if frames is None:
+                return
+            if not isinstance(frames, (list, tuple)):
+                frames = [frames]
+            for fr in frames:
+                if fr is not None:
+                    for pkt in out_s.encode(fr):
+                        out_c.mux(pkt)
+
+        for frame in in_c.decode(in_s):
+            frame.pts = None
+            _emit(resampler.resample(frame))
+        _emit(resampler.resample(None))
+        for pkt in out_s.encode(None):
+            out_c.mux(pkt)
+        out_c.close()
+        out_c = None
+        return out
+    except Exception:
+        try:
+            os.remove(out)
+        except OSError:
+            pass
+        return None
+    finally:
+        for c in (out_c, in_c):
+            if c is not None:
+                try:
+                    c.close()
+                except Exception:
+                    pass
+
+
+def _compress_audio(wav_path):
+    """Return a path to a compressed copy of ``wav_path`` for upload, or
+    ``None`` if no encoder is available (caller uploads the raw WAV)."""
+    return _compress_with_soundfile(wav_path) or _compress_with_av(wav_path)
+
+
+def _transcribe_wav_payload(wav_path, cfg, language, prompt,
+                            fallback_duration, log):
+    """Compress ``wav_path`` if possible, transcribe it, and clean up the
+    compressed temp afterwards. Falls back to the raw WAV when no encoder is
+    available."""
+    upload = _compress_audio(wav_path)
+    if upload and log:
+        try:
+            kb = os.path.getsize(upload) / 1024.0
+            ext = os.path.splitext(upload)[1].lstrip(".") or "audio"
+            log(f"  uploading {kb:.0f} KB ({ext})")
+        except OSError:
+            pass
+    try:
+        return transcribe_file(upload or wav_path, cfg, language=language,
+                               prompt=prompt, fallback_duration=fallback_duration,
+                               log=log)
+    finally:
+        if upload:
+            try:
+                os.remove(upload)
+            except OSError:
+                pass
+
+
 def transcribe_audio(audio_path, cfg, language=None, prompt=None,
                      fallback_duration=None, chunk_seconds=None, log=None):
     """Transcribe ``audio_path``, splitting long WAV input into chunks.
@@ -326,8 +444,8 @@ def transcribe_audio(audio_path, cfg, language=None, prompt=None,
 
     duration = nframes / float(rate) if rate else 0.0
     if duration <= chunk_seconds or nframes == 0:
-        return transcribe_file(audio_path, cfg, language=language, prompt=prompt,
-                               fallback_duration=fallback_duration or duration, log=log)
+        return _transcribe_wav_payload(audio_path, cfg, language, prompt,
+                                       fallback_duration or duration, log)
 
     # Use 16-bit samples for the silence search when possible.
     samples = None
@@ -381,8 +499,8 @@ def transcribe_audio(audio_path, cfg, language=None, prompt=None,
                 cw.setsampwidth(sw)
                 cw.setframerate(rate)
                 cw.writeframes(raw[a * bytes_per_frame:b * bytes_per_frame])
-            segs, _ = transcribe_file(tmp, cfg, language=language, prompt=prompt,
-                                      fallback_duration=(b - a) / float(rate), log=log)
+            segs, _ = _transcribe_wav_payload(tmp, cfg, language, prompt,
+                                              (b - a) / float(rate), log)
         finally:
             try:
                 os.remove(tmp)
