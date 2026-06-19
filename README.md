@@ -255,6 +255,15 @@ By default noScribe transcribes locally with the bundled Whisper models. Alterna
 
 The conventional `OPENAI_BASE_URL`, `OPENAI_API_KEY` and `OPENAI_MODEL` variables are accepted as fallbacks.
 
+**Quick install (Linux/macOS):** run [`install.sh`](install.sh) inside an empty project folder. It clones noScribe, sets up a virtual environment with all dependencies, asks you for the endpoint URL, Bearer token and model, stores them in a private `.env`, and writes a `run.sh` launcher:
+
+```bash
+bash install.sh          # add --with-models to also download the local models
+./noScribe/run.sh        # start noScribe with the cloud credentials loaded
+```
+
+Or configure the variables manually:
+
 Example (Linux/macOS):
 
 ```bash
